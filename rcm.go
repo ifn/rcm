@@ -7,6 +7,7 @@ import (
 	"os"
 	"runtime"
 
+	"github.com/garyburd/redigo/redis"
 	"github.com/gorilla/mux"
 )
 
@@ -17,10 +18,29 @@ type Request struct {
 type Response struct {
 	Recommendations map[string]float32 `json:"recommendations"`
 	Err             string             `json:"error"`
+
+	conn redis.Conn
 }
 
-func (self *Response) SetRecommendations() error {
-	return nil
+func (self *Response) countRecommendations(urls []string) (recommendations map[string]float32, err error) {
+	//for url in all urls
+	//	for up in user profiles
+	//		min(similarity, freq)
+	//	max
+
+	return
+}
+
+func (self *Response) SetRecommendations(urls []string) (err error) {
+	conn, err := redis.Dial("tcp", "127.0.0.1:6379")
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+	self.conn = conn
+
+	self.Recommendations, err = self.countRecommendations(urls)
+	return
 }
 
 func recommendHandler(w http.ResponseWriter, r *http.Request) {
@@ -29,6 +49,7 @@ func recommendHandler(w http.ResponseWriter, r *http.Request) {
 	decoder := json.NewDecoder(r.Body)
 	encoder := json.NewEncoder(w)
 
+	req := new(Request)
 	resp := &Response{}
 
 	var err error
@@ -45,12 +66,12 @@ func recommendHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	err = decoder.Decode(resp)
+	err = decoder.Decode(req)
 	if err != nil {
 		return
 	}
 
-	err = resp.SetRecommendations()
+	err = resp.SetRecommendations(req.Urls)
 }
 
 func startRecommendationServer() {
