@@ -18,8 +18,8 @@ type Request struct {
 }
 
 type Response struct {
-	Recommendations map[string]float32 `json:"recommendations"`
-	Err             string             `json:"error"`
+	Recommendation map[string]float32 `json:"recommendation"`
+	Err            string             `json:"error"`
 
 	conn redis.Conn
 }
@@ -32,7 +32,9 @@ func getWeight(conn redis.Conn, url, profile string) (w float64, err error) {
 	key := weightKey(url, profile)
 
 	weight, err := redis.String(conn.Do("GET", key))
-	if err != nil {
+	if err == redis.ErrNil {
+		weight = "0"
+	} else if err != nil {
 		return
 	}
 
@@ -42,7 +44,7 @@ func getWeight(conn redis.Conn, url, profile string) (w float64, err error) {
 func setWeight(conn redis.Conn, url, profile string) {
 }
 
-func (self *Response) countRecommendations(session []string) (recommendations map[string]float32, err error) {
+func (self *Response) countRecommendation(session []string) (recommendation map[string]float32, err error) {
 	urls, err := redis.Strings(self.conn.Do("SMEMBERS", "urls"))
 	if err != nil {
 		return
@@ -53,6 +55,7 @@ func (self *Response) countRecommendations(session []string) (recommendations ma
 		return
 	}
 
+	// Мамдани епта
 	for _, url := range urls {
 		for _, profile := range profiles {
 			var w float64
@@ -69,7 +72,7 @@ func (self *Response) countRecommendations(session []string) (recommendations ma
 	return
 }
 
-func (self *Response) SetRecommendations(urls []string) (err error) {
+func (self *Response) SetRecommendation(session []string) (err error) {
 	conn, err := redis.Dial("tcp", "127.0.0.1:6379")
 	if err != nil {
 		return
@@ -77,7 +80,7 @@ func (self *Response) SetRecommendations(urls []string) (err error) {
 	defer conn.Close()
 	self.conn = conn
 
-	self.Recommendations, err = self.countRecommendations(urls)
+	self.Recommendation, err = self.countRecommendation(session)
 	return
 }
 
@@ -109,7 +112,7 @@ func recommendHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = resp.SetRecommendations(req.Urls)
+	err = resp.SetRecommendation(req.Urls)
 }
 
 func startRecommendationServer() {
