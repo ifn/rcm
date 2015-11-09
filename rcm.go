@@ -13,6 +13,10 @@ import (
 	"github.com/gorilla/mux"
 )
 
+type ISimilar interface {
+	Similar(v []float32) float32
+}
+
 type Request struct {
 	Urls []string `json:"urls"`
 }
@@ -28,7 +32,7 @@ func weightKey(url, profile string) string {
 	return strings.Join([]string{url, profile}, "|")
 }
 
-func getWeight(conn redis.Conn, url, profile string) (w float64, err error) {
+func getWeight(conn redis.Conn, url, profile string) (w float32, err error) {
 	key := weightKey(url, profile)
 
 	weight, err := redis.String(conn.Do("GET", key))
@@ -38,7 +42,13 @@ func getWeight(conn redis.Conn, url, profile string) (w float64, err error) {
 		return
 	}
 
-	return strconv.ParseFloat(weight, 64)
+	w64, err := strconv.ParseFloat(weight, 32)
+	if err != nil {
+		return
+	}
+	w = float32(w64)
+
+	return
 }
 
 func setWeight(conn redis.Conn, url, profile string) {
@@ -58,7 +68,7 @@ func (self *Response) countRecommendation(session []string) (recommendation map[
 	// Мамдани епта
 	for _, url := range urls {
 		for _, profile := range profiles {
-			var w float64
+			var w float32
 			w, err = getWeight(self.conn, url, profile)
 			if err != nil {
 				return
