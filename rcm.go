@@ -13,7 +13,7 @@ import (
 	"github.com/gorilla/mux"
 )
 
-type ISimilar interface {
+type Similar interface {
 	Similar(v []float32) float32
 }
 
@@ -32,6 +32,15 @@ func weightKey(url, profile string) string {
 	return strings.Join([]string{url, profile}, "|")
 }
 
+func weightStringToFloat(wString string) (w float32, err error) {
+	w64, err := strconv.ParseFloat(wString, 32)
+	if err != nil {
+		return
+	}
+	w = float32(w64)
+	return
+}
+
 func getWeight(conn redis.Conn, url, profile string) (w float32, err error) {
 	key := weightKey(url, profile)
 
@@ -42,13 +51,45 @@ func getWeight(conn redis.Conn, url, profile string) (w float32, err error) {
 		return
 	}
 
-	w64, err := strconv.ParseFloat(weight, 32)
-	if err != nil {
-		return
-	}
-	w = float32(w64)
+	return weightStringToFloat(weight)
+}
 
-	return
+func getWeights(conn redis.Conn, urls, profiles []string) ([][]float32, error) {
+	var keys = make([]interface{}, 0, len(urls)*len(profiles))
+	for _, url := range urls {
+		for _, profile := range profiles {
+			key := weightKey(url, profile)
+			keys = append(keys, key)
+		}
+	}
+
+	weightsString, err := redis.Strings(conn.Do("MGET", keys...))
+	if err != nil {
+		return nil, err
+	}
+
+	var urlProfile [][]float32 = make([][]float32, len(urls))
+	for i := range urls {
+		urlProfile[i] = make([]float32, len(profiles))
+	}
+
+	for i := range urls {
+		for j := range profiles {
+			wString := weightsString[i*len(profiles)+j]
+			if wString == "" {
+				continue
+			}
+
+			w, err := weightStringToFloat(wString)
+			if err != nil {
+				return nil, err
+			}
+
+			urlProfile[i][j] = w
+		}
+	}
+
+	return urlProfile, nil
 }
 
 func setWeight(conn redis.Conn, url, profile string) {
@@ -65,15 +106,15 @@ func (self *Response) countRecommendation(session []string) (recommendation map[
 		return
 	}
 
+	weights, err := getWeights(self.conn, urls, profiles)
+	if err != nil {
+		return
+	}
+
 	// Мамдани епта
-	for _, url := range urls {
-		for _, profile := range profiles {
-			var w float32
-			w, err = getWeight(self.conn, url, profile)
-			if err != nil {
-				return
-			}
-			log.Println(w)
+	for i, url := range urls {
+		for j, profile := range profiles {
+			log.Println(url, profile, weights[i][j])
 			//min(similarity, freq)
 		}
 		//max
