@@ -28,17 +28,40 @@ type Response struct {
 	conn redis.Conn
 }
 
+func stringToFloat32(vString string) (v float32, err error) {
+	v64, err := strconv.ParseFloat(vString, 32)
+	if err != nil {
+		return
+	}
+	v = float32(v64)
+	return
+}
+
+func newFloat32Matrix(height, width int) [][]float32 {
+	var mx [][]float32 = make([][]float32, height)
+	for i := 0; i < width; i++ {
+		mx[i] = make([]float32, width)
+	}
+	return mx
+}
+
+func matrixPosition(width, i, j int) int {
+	return i*width + j
+}
+
 func weightKey(url, profile string) string {
 	return strings.Join([]string{url, profile}, "|")
 }
 
-func weightStringToFloat(wString string) (w float32, err error) {
-	w64, err := strconv.ParseFloat(wString, 32)
-	if err != nil {
-		return
+func weightKeys(urls, profiles []string) []interface{} {
+	var keys = make([]interface{}, 0, len(urls)*len(profiles))
+	for _, url := range urls {
+		for _, profile := range profiles {
+			key := weightKey(url, profile)
+			keys = append(keys, key)
+		}
 	}
-	w = float32(w64)
-	return
+	return keys
 }
 
 func getWeight(conn redis.Conn, url, profile string) (w float32, err error) {
@@ -51,36 +74,30 @@ func getWeight(conn redis.Conn, url, profile string) (w float32, err error) {
 		return
 	}
 
-	return weightStringToFloat(weight)
+	return stringToFloat32(weight)
 }
 
 func getWeights(conn redis.Conn, urls, profiles []string) ([][]float32, error) {
-	var keys = make([]interface{}, 0, len(urls)*len(profiles))
-	for _, url := range urls {
-		for _, profile := range profiles {
-			key := weightKey(url, profile)
-			keys = append(keys, key)
-		}
-	}
+	keys := weightKeys(urls, profiles)
 
+	// TODO: how to pass []string?
 	weightsString, err := redis.Strings(conn.Do("MGET", keys...))
 	if err != nil {
 		return nil, err
 	}
 
-	var urlProfile [][]float32 = make([][]float32, len(urls))
-	for i := range urls {
-		urlProfile[i] = make([]float32, len(profiles))
-	}
+	urlProfile := newFloat32Matrix(len(urls), len(profiles))
 
 	for i := range urls {
 		for j := range profiles {
-			wString := weightsString[i*len(profiles)+j]
+			pos := matrixPosition(len(profiles), i, j)
+
+			wString := weightsString[pos]
 			if wString == "" {
 				continue
 			}
 
-			w, err := weightStringToFloat(wString)
+			w, err := stringToFloat32(wString)
 			if err != nil {
 				return nil, err
 			}
