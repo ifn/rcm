@@ -112,6 +112,8 @@ func getWeights(conn redis.Conn, urls, profiles []string) ([][]float32, error) {
 func setWeight(conn redis.Conn, url, profile string) {
 }
 
+// TODO: 3 requests to redis is too much
+// TODO: add timeouts
 func (self *Response) countRecommendation(session []string) (recommendation map[string]float32, err error) {
 	urls, err := redis.Strings(self.conn.Do("SMEMBERS", "urls"))
 	if err != nil {
