@@ -13,21 +13,6 @@ import (
 	"github.com/gorilla/mux"
 )
 
-type Similar interface {
-	Similar(v []float32) float32
-}
-
-type Request struct {
-	Urls []string `json:"urls"`
-}
-
-type Response struct {
-	Recommendation map[string]float32 `json:"recommendation"`
-	Err            string             `json:"error"`
-
-	conn redis.Conn
-}
-
 func stringToFloat32(vString string) (v float32, err error) {
 	v64, err := strconv.ParseFloat(vString, 32)
 	if err != nil {
@@ -47,6 +32,20 @@ func newFloat32Matrix(height, width int) [][]float32 {
 
 func matrixPosition(width, i, j int) int {
 	return i*width + j
+}
+
+func transpose(mx [][]float32) (mxt [][]float32) {
+	if len(mx) == 0 {
+		return
+	}
+	mxt = newFloat32Matrix(len(mx), len(mx[0]))
+
+	for i := range mx {
+		for j := range mx[i] {
+			mxt[i][j] = mx[j][i]
+		}
+	}
+	return
 }
 
 func weightKey(url, profile string) string {
@@ -109,31 +108,99 @@ func getWeights(conn redis.Conn, urls, profiles []string) ([][]float32, error) {
 	return urlProfile, nil
 }
 
-func setWeight(conn redis.Conn, url, profile string) {
+type Similar interface {
+	Similar(v []float32) float32
 }
 
-// TODO: 3 requests to redis is too much
+type Session []float32
+
+func newSession(urlsVisited, urls []string) Session {
+	urlPos := make(map[string]int)
+	for i, url := range urls {
+		urlPos[url] = i
+	}
+
+	s := make(Session, len(urls))
+	for _, url := range urlsVisited {
+		if pos, ok := urlPos[url]; ok {
+			s[pos] = 1
+		}
+	}
+
+	return s
+}
+
+func (self Session) Similar(v []float32) float32 {
+	return 1
+}
+
+type ServerState struct {
+	urls              []string
+	profiles          []string
+	urlProfileWeights [][]float32
+}
+
 // TODO: add timeouts
-func (self *Response) countRecommendation(session []string) (recommendation map[string]float32, err error) {
-	urls, err := redis.Strings(self.conn.Do("SMEMBERS", "urls"))
+func newServerState() (state *ServerState, err error) {
+	conn, err := redis.Dial("tcp", "127.0.0.1:6379")
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+
+	urls, err := redis.Strings(conn.Do("SMEMBERS", "urls"))
 	if err != nil {
 		return
 	}
 
-	profiles, err := redis.Strings(self.conn.Do("SMEMBERS", "profiles"))
+	profiles, err := redis.Strings(conn.Do("SMEMBERS", "profiles"))
 	if err != nil {
 		return
 	}
 
-	weights, err := getWeights(self.conn, urls, profiles)
+	urlProfileWeights, err := getWeights(conn, urls, profiles)
 	if err != nil {
 		return
 	}
+
+	state = new(ServerState)
+	state.urls = urls
+	state.profiles = profiles
+	state.urlProfileWeights = urlProfileWeights
+
+	return
+}
+
+type Request struct {
+	Urls []string `json:"urls"`
+}
+
+type Response struct {
+	Recommendation map[string]float32 `json:"recommendation"`
+	Err            string             `json:"error"`
+
+	state *ServerState
+}
+
+func countSimilarities(urlProfileWeights [][]float32, session Similar) (similarities []float32) {
+	profileUrlWeights := transpose(urlProfileWeights)
+
+	similarities = make([]float32, len(profileUrlWeights))
+	for i, profile := range profileUrlWeights {
+		s := session.Similar(profile)
+		similarities[i] = s
+	}
+	return
+}
+
+func (self *Response) countRecommendation(session Similar) (recommendation map[string]float32, err error) {
+	similarities := countSimilarities(self.state.urlProfileWeights, session)
+	log.Println(similarities)
 
 	// Мамдани епта
-	for i, url := range urls {
-		for j, profile := range profiles {
-			log.Println(url, profile, weights[i][j])
+	for i, url := range self.state.urls {
+		for j, profile := range self.state.profiles {
+			log.Println(url, profile, self.state.urlProfileWeights[i][j])
 			//min(similarity, freq)
 		}
 		//max
@@ -142,59 +209,63 @@ func (self *Response) countRecommendation(session []string) (recommendation map[
 	return
 }
 
-func (self *Response) SetRecommendation(session []string) (err error) {
-	conn, err := redis.Dial("tcp", "127.0.0.1:6379")
-	if err != nil {
-		return
-	}
-	defer conn.Close()
-	self.conn = conn
-
+func (self *Response) SetRecommendation(urls []string) (err error) {
+	session := newSession(urls, self.state.urls)
 	self.Recommendation, err = self.countRecommendation(session)
 	return
 }
 
-func recommendHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
+func recommendHandler(st *ServerState) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
 
-	decoder := json.NewDecoder(r.Body)
-	encoder := json.NewEncoder(w)
+		decoder := json.NewDecoder(r.Body)
+		encoder := json.NewEncoder(w)
 
-	req := new(Request)
-	resp := &Response{}
+		req := new(Request)
+		resp := &Response{state: st}
 
-	var err error
+		var err error
 
-	defer func() {
+		defer func() {
+			if err != nil {
+				log.Println(err)
+				resp.Err = err.Error()
+			}
+
+			err := encoder.Encode(resp)
+			if err != nil {
+				log.Println(err)
+			}
+		}()
+
+		err = decoder.Decode(req)
 		if err != nil {
-			log.Println(err)
-			resp.Err = err.Error()
+			return
 		}
 
-		err := encoder.Encode(resp)
-		if err != nil {
-			log.Println(err)
-		}
-	}()
-
-	err = decoder.Decode(req)
-	if err != nil {
-		return
+		err = resp.SetRecommendation(req.Urls)
 	}
-
-	err = resp.SetRecommendation(req.Urls)
 }
 
-func startRecommendationServer() {
+func startRecommendationServer() error {
+	state, err := newServerState()
+	if err != nil {
+		return err
+	}
+
 	r := mux.NewRouter()
-	r.HandleFunc("/recommend", recommendHandler).Methods("POST")
+	r.HandleFunc("/recommend", recommendHandler(state)).Methods("POST")
 	http.Handle("/", r)
 
-	log.Fatal(http.ListenAndServe(":"+os.Getenv("PORT"), nil))
+	return http.ListenAndServe(":"+os.Getenv("PORT"), nil)
 }
 
 func main() {
-	startRecommendationServer()
+	err := startRecommendationServer()
+	if err != nil {
+		log.Fatal(err)
+	}
 }
 
 func init() {
