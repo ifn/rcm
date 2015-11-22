@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"runtime"
@@ -12,6 +13,18 @@ import (
 	"github.com/garyburd/redigo/redis"
 	"github.com/gorilla/mux"
 )
+
+func max(numbers []float32) float32 {
+	if len(numbers) == 0 {
+		return 0
+	}
+	var max float64 = float64(numbers[0])
+
+	for i := 1; i < len(numbers); i++ {
+		max = math.Max(max, float64(numbers[i]))
+	}
+	return float32(max)
+}
 
 func stringToFloat32(vString string) (v float32, err error) {
 	v64, err := strconv.ParseFloat(vString, 32)
@@ -47,6 +60,8 @@ func transpose(mx [][]float32) (mxt [][]float32) {
 	}
 	return
 }
+
+//
 
 func weightKey(url, profile string) string {
 	return strings.Join([]string{url, profile}, "|")
@@ -108,6 +123,8 @@ func getWeights(conn redis.Conn, urls, profiles []string) ([][]float32, error) {
 	return urlProfile, nil
 }
 
+//
+
 type Similar interface {
 	Similar(v []float32) float32
 }
@@ -133,6 +150,8 @@ func newSession(urlsVisited, urls []string) Session {
 func (self Session) Similar(v []float32) float32 {
 	return 1
 }
+
+//
 
 type ServerState struct {
 	urls              []string
@@ -193,17 +212,18 @@ func countSimilarities(urlProfileWeights [][]float32, session Similar) (similari
 	return
 }
 
+// Mamdani inference
 func (self *Response) countRecommendation(session Similar) (recommendation map[string]float32, err error) {
 	similarities := countSimilarities(self.state.urlProfileWeights, session)
-	log.Println(similarities)
 
-	// Мамдани епта
+	recommendation = make(map[string]float32)
+	weights := make([]float32, len(self.state.profiles))
 	for i, url := range self.state.urls {
-		for j, profile := range self.state.profiles {
-			log.Println(url, profile, self.state.urlProfileWeights[i][j])
-			//min(similarity, freq)
+		for j := range self.state.profiles {
+			min := float32(math.Min(float64(similarities[j]), float64(self.state.urlProfileWeights[i][j])))
+			weights[j] = min
 		}
-		//max
+		recommendation[url] = max(weights)
 	}
 
 	return
