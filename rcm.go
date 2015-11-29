@@ -292,6 +292,8 @@ func startRecommendationServer() error {
 	return http.ListenAndServe(":"+os.Getenv("PORT"), nil)
 }
 
+// TODO: move redis settings to conf
+// TODO: add tests
 func main() {
 	err := startRecommendationServer()
 	if err != nil {
