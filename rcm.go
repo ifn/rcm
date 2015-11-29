@@ -148,7 +148,17 @@ func newSession(urlsVisited, urls []string) Session {
 }
 
 func (self Session) Similar(v []float32) float32 {
-	return 1
+	if len(self) != len(v) || len(self) == 0 {
+		return 0
+	}
+
+	var s float32
+	for i := range self {
+		s += self[i] * v[i]
+	}
+	s /= float32(len(self))
+
+	return s
 }
 
 //
@@ -218,6 +228,7 @@ func (self *Response) countRecommendation(session Similar) (recommendation map[s
 
 	recommendation = make(map[string]float32)
 	weights := make([]float32, len(self.state.profiles))
+
 	for i, url := range self.state.urls {
 		for j := range self.state.profiles {
 			min := float32(math.Min(float64(similarities[j]), float64(self.state.urlProfileWeights[i][j])))
