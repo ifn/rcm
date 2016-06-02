@@ -35,27 +35,27 @@ func stringToFloat32(vString string) (v float32, err error) {
 	return
 }
 
-func newFloat32Matrix(height, width int) [][]float32 {
-	var mx [][]float32 = make([][]float32, height)
-	for i := 0; i < width; i++ {
-		mx[i] = make([]float32, width)
+func newFloat32Matrix(numRows, numCols int) [][]float32 {
+	var mx [][]float32 = make([][]float32, numRows)
+	for i := 0; i < numRows; i++ {
+		mx[i] = make([]float32, numCols)
 	}
 	return mx
 }
 
-func matrixPosition(width, i, j int) int {
-	return i*width + j
+func matrixPosition(numCols, i, j int) int {
+	return i*numCols + j
 }
 
 func transpose(mx [][]float32) (mxt [][]float32) {
 	if len(mx) == 0 {
 		return
 	}
-	mxt = newFloat32Matrix(len(mx), len(mx[0]))
+	mxt = newFloat32Matrix(len(mx[0]), len(mx))
 
 	for i := range mx {
 		for j := range mx[i] {
-			mxt[i][j] = mx[j][i]
+			mxt[j][i] = mx[i][j]
 		}
 	}
 	return
